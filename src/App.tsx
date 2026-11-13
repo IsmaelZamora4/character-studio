@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SandpackProvider, SandpackLayout, SandpackCodeEditor, SandpackPreview, useSandpack } from '@codesandbox/sandpack-react';
-import { Code2, Box, Film, RotateCcw, Download, Upload, Save, MonitorPlay, Smartphone, Maximize2, Play, UserRound, Plus, FolderOpen, FileCode2, Moon, Sun } from 'lucide-react';
+import { SandpackProvider, SandpackLayout, SandpackCodeEditor, SandpackPreview, useSandpack, type CodeEditorRef } from '@codesandbox/sandpack-react';
+import { Code2, Box, Film, RotateCcw, Download, Upload, Save, MonitorPlay, Smartphone, Maximize2, Play, UserRound, Plus, FolderOpen, FileCode2, Moon, Sun, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { deps, samples, type Mode } from './examples';
 
 type Viewport = 'free' | 'vertical' | 'square';
@@ -97,6 +97,52 @@ createRoot(document.getElementById('root')!).render(<Preview />);
   return null;
 }
 
+function EditorSearch({editorRef,code}:{editorRef:{current:CodeEditorRef|null},code:string}){
+  const [isOpen,setIsOpen]=useState(false);
+  const [query,setQuery]=useState('');
+  const [activeMatch,setActiveMatch]=useState(0);
+  const inputRef=useRef<HTMLInputElement>(null);
+  const triggerRef=useRef<HTMLButtonElement>(null);
+  const matches=useMemo(()=>{
+    if(!query)return [];
+    const escapedQuery=query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const expression=new RegExp(escapedQuery,'gi');
+    const found:number[]=[];
+    let match:RegExpExecArray|null;
+    while((match=expression.exec(code))!==null)found.push(match.index);
+    return found;
+  },[code,query]);
+  const currentMatch=matches.length?activeMatch%matches.length:-1;
+  useEffect(()=>{if(isOpen)inputRef.current?.focus()},[isOpen]);
+  useEffect(()=>{
+    const start=matches[currentMatch];
+    const view=editorRef.current?.getCodemirror();
+    if(!isOpen||start===undefined||!view||start>=view.state.doc.length)return;
+    view.dispatch({selection:{anchor:start,head:Math.min(start+query.length,view.state.doc.length)},scrollIntoView:true});
+  },[currentMatch,editorRef,isOpen,matches,query]);
+  const moveMatch=(direction:-1|1)=>{
+    if(matches.length)setActiveMatch(index=>(index+direction+matches.length)%matches.length);
+  };
+  const closeSearch=()=>{
+    setIsOpen(false);
+    window.requestAnimationFrame(()=>triggerRef.current?.focus());
+  };
+  return <div className="editorSearchControl">
+    <button ref={triggerRef} type="button" className="editorSearchTrigger" aria-label="Buscar en el código" aria-expanded={isOpen} aria-controls="editor-code-search" onClick={()=>isOpen?closeSearch():setIsOpen(true)}><Search size={15}/><span>Buscar</span></button>
+    {isOpen&&<div id="editor-code-search" className="editorSearchPanel" role="search">
+      <Search size={15} aria-hidden="true"/>
+      <input ref={inputRef} type="search" value={query} placeholder="Buscar en el código" aria-label="Buscar en el código" autoComplete="off" spellCheck={false} onChange={event=>{setQuery(event.target.value);setActiveMatch(0)}} onKeyDown={event=>{
+        if(event.key==='Enter'){event.preventDefault();moveMatch(event.shiftKey?-1:1)}
+        if(event.key==='Escape')closeSearch();
+      }}/>
+      <span className="editorSearchCount" aria-live="polite">{matches.length?`${currentMatch+1} de ${matches.length}`:query?'Sin resultados':''}</span>
+      <button type="button" className="editorSearchNav" aria-label="Coincidencia anterior" title="Coincidencia anterior" disabled={!matches.length} onClick={()=>moveMatch(-1)}><ChevronUp size={16}/></button>
+      <button type="button" className="editorSearchNav" aria-label="Coincidencia siguiente" title="Coincidencia siguiente" disabled={!matches.length} onClick={()=>moveMatch(1)}><ChevronDown size={16}/></button>
+      <button type="button" className="editorSearchClose" aria-label="Cerrar búsqueda" title="Cerrar búsqueda" onClick={closeSearch}><X size={15}/></button>
+    </div>}
+  </div>;
+}
+
 export default function App(){
   const [mode,setMode]=useState<Mode>('react');
   const [isDarkMode,setIsDarkMode]=useState(()=>localStorage.getItem(themeStorageKey)==='dark');
@@ -105,6 +151,7 @@ export default function App(){
   const [syncToken,setSyncToken]=useState(0);
   const [status,setStatus]=useState('Listo');
   const uploadRef=useRef<HTMLInputElement>(null);
+  const editorRef=useRef<CodeEditorRef>(null);
   const editorCode=code[mode];
   const htmlDocument=isHtmlDocument(editorCode);
   const updateCode=useCallback((value:string)=>setCode(old=>old[mode]===value?old:{...old,[mode]:value}),[mode]);
@@ -158,8 +205,8 @@ createRoot(document.getElementById('root')!).render(<Preview />);
         <SandpackProvider key={`${mode}-${syncToken}`} template="react-ts" files={files} customSetup={customSetup} theme={isDarkMode?'dark':'light'} options={{initMode:'immediate',autorun:true,recompileMode:'delayed',recompileDelay:500}}>
           <SandboxPersistence mode={mode} code={editorCode} syncToken={syncToken} onCode={updateCode}/>
           <section className="editorPane editorCard" aria-label="Editor de código">
-            <div className="paneTitle editorTitle"><span><Code2 size={19}/><b>Personaje.tsx</b></span><span className="liveLabel"><i/> Edición en vivo</span></div>
-            <SandpackLayout className="sandpackLayout"><div className="editorSlot"><SandpackCodeEditor initMode="immediate" showLineNumbers showTabs={false} wrapContent style={{height:'100%',minHeight:'520px'}} /></div></SandpackLayout>
+            <div className="paneTitle editorTitle"><span><Code2 size={19}/><b>Personaje.tsx</b></span><div className="editorHeaderActions"><EditorSearch editorRef={editorRef} code={editorCode}/><span className="liveLabel"><i/> Edición en vivo</span></div></div>
+            <SandpackLayout className="sandpackLayout"><div className="editorSlot"><SandpackCodeEditor ref={editorRef} initMode="immediate" showLineNumbers showTabs={false} wrapContent style={{height:'100%',minHeight:'520px'}} /></div></SandpackLayout>
           </section>
           <section className="previewPane previewCard" aria-label="Vista previa">
             <div className="paneTitle previewTitle"><span><MonitorPlay size={19}/><b>Vista previa</b></span><div className="previewActions"><span>{mode==='three'?'Arrastra · rueda zoom · clic derecho desplaza':mode==='remotion'?'Player animado':'Render en tiempo real'}</span><button type="button" className="previewRun" title="Compilar e iniciar el código actual" onClick={()=>setSyncToken(token=>token+1)}><Play size={14}/> Iniciar</button></div></div>
